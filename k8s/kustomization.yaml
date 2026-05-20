@@ -1,0 +1,15 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: crickbuzz
+
+resources:
+  - namespace.yaml
+  - secret.yaml
+  - configmap.yaml
+  - postgres-service.yaml
+  - postgres-statefulset.yaml
+  - api-deployment.yaml
+  - api-service.yaml
+  - api-nodeport.yaml
+  - ingress.yaml

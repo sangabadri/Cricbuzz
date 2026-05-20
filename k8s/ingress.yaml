@@ -1,0 +1,24 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: crickbuzz-api
+  namespace: crickbuzz
+  labels:
+    app.kubernetes.io/name: crickbuzz
+    app.kubernetes.io/component: api
+  annotations:
+    # Minikube ingress addon
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: crickbuzz.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: crickbuzz-api
+                port:
+                  number: 80
