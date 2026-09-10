@@ -1,8 +1,11 @@
-.venv/
+﻿.venv/
 __pycache__/
 *.py[cod]
+*.class
 .env
+.env.*
 *.egg-info/
 .pytest_cache/
-node_modules/
-frontend/dist/
+.vscode/
+.idea/
+*.log
