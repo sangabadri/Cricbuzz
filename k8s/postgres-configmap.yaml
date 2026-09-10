@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cricbuzz-config
+data:
+  DB_HOST: "cricbuzz-db"
+  DB_PORT: "5432"
+  DB_NAME: "cricbuzz"
+  DB_USER: "cricuser"
