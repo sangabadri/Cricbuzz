@@ -21,3 +21,6 @@ tzdata==2026.3
 uvicorn==0.52.4
 watchfiles==1.2.0
 websockets==17.1
+pytest==9.1.1
+pytest-asyncio==1.4.0
+httpx==0.28.1
