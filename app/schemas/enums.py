@@ -3,7 +3,26 @@ from enum import Enum
 class MatchFormat(str, Enum):
     T20 = "t20"
     ODI = "odi"
-    TEST = "test"
+
+    @property
+    def max_overs(self) -> int:
+        match self:
+            case MatchFormat.T20:
+                return 20
+            case MatchFormat.ODI:
+                return 50
+
+    @property
+    def max_bowler_overs(self) -> int:
+        match self:
+            case MatchFormat.T20:
+                return 4
+            case MatchFormat.ODI:
+                return 10
+
+    @property
+    def total_innings(self) -> int:
+        return 2
 
 class MatchStatus(str, Enum):
     SCHEDULED = "scheduled"
@@ -12,6 +31,11 @@ class MatchStatus(str, Enum):
     INNINGS_BREAK = "innings_break"
     COMPLETED = "completed"
     ABANDONED = "abandoned"
+
+class InningsStatus(str, Enum):
+    NOT_STARTED = "not_started"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
 
 class TossDecision(str, Enum):
     BAT = "bat"
@@ -30,14 +54,10 @@ class BattingStyle(str, Enum):
 class BowlingStyle(str, Enum):
     RIGHT_ARM_FAST = "right-arm fast"
     LEFT_ARM_FAST = "left-arm fast"
-    RIGHT_ARM_FAST_MEDIUM = "right-arm fast-medium"
-    LEFT_ARM_FAST_MEDIUM = "left-arm fast-medium"
     RIGHT_ARM_MEDIUM = "right-arm medium"
     LEFT_ARM_MEDIUM = "left-arm medium"
-    RIGHT_ARM_OFF_BREAK = "right-arm off-break"
-    LEFT_ARM_ORTHODOX = "left-arm orthodox"
-    RIGHT_ARM_LEG_BREAK = "right-arm leg-break"
-    LEFT_ARM_CHINAMAN = "left-arm chinaman"
+    RIGHT_ARM_SPIN = "right-arm spin"
+    LEFT_ARM_SPIN = "left-arm spin"
 
 class WicketType(str, Enum):
     BOWLED = "bowled"
@@ -47,11 +67,6 @@ class WicketType(str, Enum):
     STUMPED = "stumped"
     HIT_WICKET = "hit_wicket"
     CAUGHT_AND_BOWLED = "caught_and_bowled"
-    HANDLED_BALL = "handled_ball"
-    OBSTRUCTING_FIELD = "obstructing_field"
-    RETIRED_OUT = "retired_out"
-    TIMED_OUT = "timed_out"
-    HIT_BALL_TWICE = "hit_ball_twice"
 
 class ExtraType(str, Enum):
     WIDE = "wide"
