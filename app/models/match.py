@@ -24,6 +24,7 @@ class Match(Base):
     winner_obj=relationship("Team", foreign_keys=[winner])
     toss_winner_obj=relationship("Team", foreign_keys=[toss_winner])
     mom_obj=relationship("Player")
+    innings = relationship("Innings", back_populates="match_obj", order_by="Innings.innings_number", lazy="selectin")
     
     __table_args__ = (
         CheckConstraint(

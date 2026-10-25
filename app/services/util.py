@@ -1,10 +1,13 @@
 from fastapi import HTTPException
 
+def raise_exception(code: int, msg : str):
+    raise HTTPException(status_code=code, detail=msg)
+
 def validate_none(obj, type : str):
     if obj is None:
-        raise HTTPException(status_code=404, detail=f"{type} not found")
+        raise_exception(404, f"{type} not found")
 
 def validate_exists(obj, type : str):
     if obj is not None:
-        raise HTTPException(status_code=400, detail=f"{type} already exists")
+        raise_exception(400, f"{type} already exists")
     

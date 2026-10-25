@@ -1,116 +1,155 @@
-from fastapi import HTTPException
-from sqlalchemy.orm import Session
+from fastapi import Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+
+from app.database import get_db
 
 from app.models.player import Player
 from app.models.squad import Squad, SquadPlayer
 from app.schemas.squad import SquadCreate
-from app.schemas.enums import Role
-from app.services.util import validate_exists
-from app.services.match import get_match, check_match_has_team
+from app.schemas.enums import Role, MatchStatus
+from app.services.util import validate_none, raise_exception
+from app.services.match import MatchService
 
-def get_squad(match_id : int, team_id : int, db : Session):
-    match = get_match(match_id, db)
-    check_match_has_team(match, team_id)
-    squad=(
-        db.query(Squad)
-        .filter(Squad.match_id==match_id, Squad.team_id==team_id)
-        .first()
-    )
-    return squad
+class SquadService:
+    def __init__(self, db: AsyncSession):
+        self.db = db
+        self.match_service = MatchService(db)
 
-def validate_squad(match_id : int, squad : SquadCreate, db : Session):
-    squad_=get_squad(match_id, squad.team_id, db)
-    validate_exists(squad_, f"A Squad for (Match: {match_id}, Team: {squad.team_id})")
-    opponent_players_ids = {
-        sp.player_id
-        for sp in (
-            db.query(SquadPlayer)
-            .join(Squad)
-            .filter(Squad.match_id==match_id)
-            .all()
+    def validate_squad_payload(self, squad: SquadCreate):
+        if len(squad.players) != 15:
+            raise_exception(400, "Squad must contain exactly 15 players")
+        player_ids = [sp.player_id for sp in squad.players]
+        if len(player_ids) != len(set(player_ids)):
+            raise_exception(400, "Squad cannot contain duplicate players")
+        xi_count = sum(1 for sp in squad.players if sp.is_playing_xi)
+        bench_count = sum(1 for sp in squad.players if not sp.is_playing_xi)
+        if xi_count != 11:
+            raise_exception(400, "Playing XI must contain exactly 11 players")
+        if bench_count != 4:
+            raise_exception(400, "Squad must contain exactly 4 bench players")
+        xi_player_ids = {sp.player_id for sp in squad.players if sp.is_playing_xi}
+        if squad.captain_id not in xi_player_ids:
+            raise_exception(400, "Captain must be part of the playing XI")
+        if squad.wicket_keeper_id not in xi_player_ids:
+            raise_exception(400, "Wicket-keeper must be part of the playing XI")
+
+    def validate_players(self, squad: SquadCreate, players_by_id: dict) -> dict:
+        bowler_count = 0
+        wicket_keeper_count = 0
+        for sp in squad.players:
+            if sp.is_playing_xi:
+                player = players_by_id[sp.player_id]
+                if player.role in (Role.BOWLER, Role.ALLROUNDER):
+                    bowler_count += 1
+                if player.role == Role.WICKETKEEPER:
+                    wicket_keeper_count += 1
+        return {
+            "bowler_count": bowler_count,
+            "wicket_keeper_count": wicket_keeper_count,
+        }
+
+    def validate_squad_rules(self, squad: SquadCreate, counts: dict):
+        if counts["bowler_count"] < 5:
+            raise_exception(400, "Playing XI must contain at least 5 bowlers")
+        if counts["wicket_keeper_count"] < 1:
+            raise_exception(400, "Playing XI must contain at least one wicket-keeper")
+
+    async def get_squad(self, match_id: int, team_id: int) -> Squad | None:
+        match = await self.match_service.get_match(match_id)
+        self.match_service.check_match_has_team(match, team_id)
+        result = await self.db.execute(
+            select(Squad).where(Squad.match_id == match_id, Squad.team_id == team_id)
         )
-    }
-    player_ids = [sp.player_id for sp in squad.players]
-    players = (
-        db.query(Player)
-        .filter(Player.id.in_(player_ids))
-        .all()
-    )
-    players_by_id = {
-        player.id : player
-        for player in players
-    }
-    if len(players_by_id) != len(set(player_ids)):
-        missing = set(player_ids) - set(players_by_id)
-        raise HTTPException(status_code=400, detail=f"Players do not exist: {sorted(missing)}")
-    counts=validate_players(squad, players_by_id, opponent_players_ids)
-    validate_squad_rules(squad, counts)
-    
-    
-def validate_players(squad : SquadCreate, players_by_id : dict, opponent_player_ids : set):
-    player_ids = set()
-    playing_xi_count = 0
-    bench_count = 0
-    batsman_count = 0
-    bowler_count = 0
-    wicket_keeper_count = 0
-    captain_found = False
-    captain_in_xi = False
-    wicket_keeper_found = False
-    wicket_keeper_in_xi = False
-    for sp in squad.players:
-        player_id = sp.player_id
-        if player_id in opponent_player_ids:
-            raise HTTPException(status_code=400, detail=f"Player {player_id} is already part of another squad in this match")
-        if player_id in player_ids:
-            raise HTTPException(status_code=400, detail=f"Player {player_id} is already part of the squad")
-        player_ids.add(player_id)
-        player = players_by_id[player_id]
-        if sp.is_playing_xi:
-            playing_xi_count += 1
-            if player.role == Role.BATSMAN:
-                batsman_count += 1
-            elif player.role == Role.BOWLER:
-                bowler_count += 1
-            elif player.role == Role.ALLROUNDER:
-                batsman_count += 1
-                bowler_count += 1
-            elif player.role == Role.WICKETKEEPER:
-                wicket_keeper_count += 1
-        else:
-            bench_count += 1
-        if player_id == squad.captain_id:
-            captain_found = True
-            captain_in_xi = sp.is_playing_xi
-        if player_id == squad.wicket_keeper_id:
-            wicket_keeper_found = True
-            wicket_keeper_in_xi = sp.is_playing_xi
-    return {
-        "playing_xi_count": playing_xi_count,
-        "bench_count": bench_count,
-        "batsman_count": batsman_count,
-        "bowler_count": bowler_count,
-        "wicket_keeper_count": wicket_keeper_count,
-        "captain_found": captain_found,
-        "captain_in_xi": captain_in_xi,
-        "wicket_keeper_found": wicket_keeper_found,
-        "wicket_keeper_in_xi": wicket_keeper_in_xi,
-    }
+        return result.scalars().first()
 
-def validate_squad_rules(squad: SquadCreate, counts: dict):
-    if counts["playing_xi_count"] != 11:
-        raise HTTPException(status_code=400, detail="Playing XI must contain exactly 11 players")
-    if counts["bench_count"] != 4:
-        raise HTTPException(status_code=400, detail="Squad must contain exactly 4 bench players")
-    if counts["bowler_count"] < 5:
-        raise HTTPException(status_code=400, detail="Playing XI must contain at least 5 bowlers")
-    if not counts["captain_found"]:
-        raise HTTPException(status_code=400, detail="Captain must be part of the squad")
-    if not counts["captain_in_xi"]:
-        raise HTTPException(status_code=400, detail="Captain must be part of the playing XI")
-    if not counts["wicket_keeper_found"]:
-        raise HTTPException(status_code=400, detail="Wicket-keeper must be part of the squad")
-    if not counts["wicket_keeper_in_xi"]:
-        raise HTTPException(status_code=400, detail="Wicket-keeper must be part of the playing XI")
-    if counts["wicket_keeper_count"] != 1:
-        raise HTTPException(status_code=400, detail="Playing XI must contain exactly one wicket-keeper")
+    async def create_squad(self, match_id: int, squad: SquadCreate) -> Squad:
+        self.validate_squad_payload(squad)
+
+        match = await self.match_service.get_match(match_id)
+        self.match_service.check_match_has_team(match, squad.team_id)
+
+        # Idempotency check: if squad already submitted for this team in this match
+        existing_squad = await self.get_squad(match_id, squad.team_id)
+        if existing_squad:
+            # Check if identical
+            existing_pids = await self.db.execute(
+                select(SquadPlayer.player_id, SquadPlayer.is_playing_xi)
+                .where(SquadPlayer.squad_id == existing_squad.id)
+            )
+            existing_dict = {r[0]: r[1] for r in existing_pids.all()}
+            incoming_dict = {p.player_id: p.is_playing_xi for p in squad.players}
+            if (
+                existing_dict == incoming_dict
+                and existing_squad.captain_id == squad.captain_id
+                and existing_squad.wicket_keeper_id == squad.wicket_keeper_id
+            ):
+                return existing_squad
+            raise_exception(400, f"A squad for team {squad.team_id} has already been submitted for this match")
+
+        if match.status != MatchStatus.SCHEDULED:
+            raise_exception(400, f"Cannot submit squad for match with status '{match.status.value}'")
+
+        # Check opponent players
+        existing_res = await self.db.execute(
+            select(SquadPlayer.player_id)
+            .join(Squad, Squad.id == SquadPlayer.squad_id)
+            .where(Squad.match_id == match_id)
+        )
+        opponent_player_ids = set(existing_res.scalars().all())
+        player_ids = [sp.player_id for sp in squad.players]
+        for pid in player_ids:
+            if pid in opponent_player_ids:
+                raise_exception(400, f"Player {pid} is already part of another squad in this match")
+
+        players_result = await self.db.execute(select(Player).where(Player.id.in_(player_ids)))
+        players = players_result.scalars().all()
+        players_by_id = {player.id: player for player in players}
+        if len(players_by_id) != len(set(player_ids)):
+            missing = set(player_ids) - set(players_by_id)
+            raise_exception(400, f"Players do not exist: {sorted(missing)}")
+        if players_by_id[squad.wicket_keeper_id].role != Role.WICKETKEEPER:
+            raise_exception(400, "Designated wicket-keeper must have wicketkeeper role")
+
+        counts = self.validate_players(squad, players_by_id)
+        self.validate_squad_rules(squad, counts)
+
+        db_squad = Squad(
+            match_id=match_id,
+            team_id=squad.team_id,
+            captain_id=squad.captain_id,
+            wicket_keeper_id=squad.wicket_keeper_id,
+        )
+        self.db.add(db_squad)
+        await self.db.flush()
+
+        for player in squad.players:
+            db_player = SquadPlayer(
+                squad_id=db_squad.id,
+                player_id=player.player_id,
+                is_playing_xi=player.is_playing_xi,
+            )
+            self.db.add(db_player)
+
+        await self.db.commit()
+        await self.db.refresh(db_squad)
+        return db_squad
+
+
+# Dependency helper
+def get_squad_service(db: AsyncSession = Depends(get_db)) -> SquadService:
+    return SquadService(db)
+
+# Backward-compatible function wrappers
+async def create_squad(match_id: int, squad: SquadCreate, db: AsyncSession):
+    return await SquadService(db).create_squad(match_id, squad)
+
+async def get_squad(match_id: int, team_id: int, db: AsyncSession):
+    return await SquadService(db).get_squad(match_id, team_id)
+
+async def validate_squad(match_id: int, squad: SquadCreate, db: AsyncSession):
+    # Validates without persisting (used in old procedural flow if needed)
+    service = SquadService(db)
+    service.validate_squad_payload(squad)
+    match = await service.match_service.get_match(match_id)
+    service.match_service.check_match_has_team(match, squad.team_id)

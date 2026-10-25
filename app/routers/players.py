@@ -1,22 +1,38 @@
 from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
 
-from app.database import get_db
-from app.models.player import Player
-from app.schemas.player import PlayerCreate, PlayerResponse
-from app.services.player import validate_player, get_player as get_player_service
+from app.schemas.player import PlayerCreate, PlayerResponse, PlayerCareerStatsResponse
+from app.schemas.enums import Role
+from app.services.player import PlayerService, get_player_service
 
-router = APIRouter(prefix = "/players", tags=["Players"])
+router = APIRouter(prefix="/players", tags=["Players"])
+
+@router.get("/", response_model=list[PlayerResponse])
+async def get_all_players(
+    role: Role | None = None,
+    search: str | None = None,
+    limit: int = 20,
+    offset: int = 0,
+    service: PlayerService = Depends(get_player_service),
+):
+    return await service.list_players(role=role, search=search, limit=limit, offset=offset)
 
 @router.get("/{player_id}", response_model=PlayerResponse)
-def get_player(player_id : int, db : Session = Depends(get_db)):
-    return get_player_service(player_id, db)
+async def get_player(
+    player_id: int,
+    service: PlayerService = Depends(get_player_service),
+):
+    return await service.get_player(player_id)
+
+@router.get("/{player_id}/stats", response_model=PlayerCareerStatsResponse)
+async def get_player_stats(
+    player_id: int,
+    service: PlayerService = Depends(get_player_service),
+):
+    return await service.get_player_career_stats(player_id)
 
 @router.post("/", response_model=PlayerResponse)
-def create_player(player : PlayerCreate, db : Session = Depends(get_db)):
-    validate_player(player)
-    db_player=Player(name=player.name, role=player.role, batting=player.batting, bowling=player.bowling)
-    db.add(db_player)
-    db.commit()
-    db.refresh(db_player)
-    return db_player
+async def create_player(
+    player: PlayerCreate,
+    service: PlayerService = Depends(get_player_service),
+):
+    return await service.create_player(player)
